@@ -123,8 +123,8 @@ input[type="number"]::-webkit-inner-spin-button,input[type="number"]::-webkit-ou
 </div>
 <script src="es-data.js?v=409"></script>
 <script src="../v41006-duty-points.js?v=41006"></script>
-<script src="../v40205-motor-baseplate-data.js?v=409"></script>
-<script src="../v40205-motor-baseplate.js?v=409"></script>
+<script src="../v40205-motor-baseplate-data.js?v=42602"></script>
+<script src="../v40205-motor-baseplate.js?v=42602"></script>
 <script src="es-core.js?v=409"></script>
 <script>
 (function(){
@@ -162,7 +162,7 @@ function shaftRow(r){var d=dimsOf(r),t=(r&&r.torque)||ESCore.torqueCheck(r&&r.pu
 function impellerChoices(r){if(!r)return [];var max=ESCore.dmax(r.pump),min=ESCore.dmin(r.pump),vals=[max],start=Math.floor((max-1e-8)/5)*5,end=Math.ceil(min/5)*5;for(var d=start;d>=end;d-=5)vals.push(d);if(vals.indexOf(min)<0)vals.push(min);return ESCore.uniqueNumbers(vals).sort(function(a,b){return b-a})}
 function motorChoice(r){if(!r)return null;var override=motorOverrides[r.pump.id],hp=(override&&override.hp>0)?override.hp:r.motor.motorHp;var choices=ESCore.STANDARD_MOTORS,found=choices.find(function(x){return Math.abs(x.hp-hp)<1e-8})||choices.find(function(x){return x.hp>=hp})||choices[choices.length-1],requiredBhp=Math.max.apply(null,(r.dutyPoints&&r.dutyPoints.length?r.dutyPoints:[{performance:r.performance}]).map(function(d){return Number(d.performance&&d.performance.bhp)||0}));return {hp:found.hp,kw:found.kw,efficiencyClass:motorEfficiencyClass||'IE3',requiredKw:r.motor.requiredKw,requiredBhp:requiredBhp,undersizedBhp:found.hp+1e-9<requiredBhp,undersizedAllowance:found.kw+1e-9<r.motor.requiredKw,undersized:found.hp+1e-9<requiredBhp,isRecommended:!(override&&override.hp>0)}}
 function motorOptionsHtml(r){var c=motorChoice(r),override=motorOverrides[r.pump.id],html='<option value="auto" '+(!(override&&override.hp>0)?'selected':'')+'>Recommended · '+fmt(r.motor.motorHp,r.motor.motorHp<1?2:r.motor.motorHp%1?1:0)+' HP</option>';html+=ESCore.STANDARD_MOTORS.map(function(x){return '<option value="'+x.hp+'" '+((override&&override.hp>0&&Math.abs(x.hp-c.hp)<1e-8)?'selected':'')+'>'+fmt(x.hp,x.hp<1?2:x.hp%1?1:0)+' HP</option>'}).join('');return html}
-function efficiencyOptionsHtml(){return ['IE1','IE2','IE3','IE4'].map(function(x){return '<option value="'+x+'" '+(x===motorEfficiencyClass?'selected':'')+'>'+x+'</option>'}).join('')}
+function efficiencyOptionsHtml(){return ['IE1','IE2','IE3','IE4','IE5'].map(function(x){return '<option value="'+x+'" '+(x===motorEfficiencyClass?'selected':'')+'>'+x+'</option>'}).join('')}
 function couplingOptionsHtml(){return ['Flexible','Tyre','Pin & Bush'].map(function(x){return '<option value="'+esc(x)+'" '+(x===couplingType?'selected':'')+'>'+esc(x)+'</option>'}).join('')}
 function updateFrequencyWarning(){var el=$('manualFrequency'),hz=Number(el.value);el.classList.toggle('frequency-abnormal',Number.isFinite(hz)&&hz<30)}
 function refreshManualSetting(){var r=current(),imp=$('manualImpeller'),minus=$('impellerMinus'),plus=$('impellerPlus');$('manualFrequency').value=r?fmt(r.frequencyHz,1):'50';updateFrequencyWarning();if(!r){imp.value='';imp.disabled=true;minus.disabled=true;plus.disabled=true;return}var min=Math.ceil(ESCore.dmin(r.pump)),max=Math.floor(ESCore.dmax(r.pump));imp.min=String(min);imp.max=String(max);imp.value=fmt(Math.round(r.impellerMm),0);imp.disabled=false;minus.disabled=false;plus.disabled=false}
