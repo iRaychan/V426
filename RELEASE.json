@@ -1,22 +1,14 @@
 {
-  "version": "4.26.02",
-  "baseline": "4.26.01 FULL CLEAN",
-  "upgrade_supported_from": "4.26.01",
-  "motor_source": "004 - Motor 260811 - V1.2.xlsx",
-  "motor_counts": {
-    "IE4_2P": 31,
-    "IE4_4P": 31,
-    "IE5_2P": 26,
-    "IE5_4P": 27
-  },
+  "version": "4.26.03",
+  "baseline": "4.26.02 FULL CLEAN",
+  "upgrade_supported_from": "4.26.02",
   "changes": [
-    "Global Motor V1.2 Page 2 technical-data lookup for CHC C4/C6, VMS/SVM, BFI/HMS and ES",
-    "IE1 mapping fixed; IE4 and IE5 now populated from shared motor master",
-    "ES IE5 motor-efficiency option enabled",
-    "V4.26.01 half-screen split-view preserved"
+    "Product Curve: changing Motor IE/Phase refreshes motor data without re-selecting or hiding the selected pump curve",
+    "D1 can be cleared/removed; clearing Flow or Head removes the active D1 marker/system curve while keeping the selected pump curve visible",
+    "D2-D6 remove behavior retained",
+    "Applied to CHC C4/C6, VMS/SVM aliases and BFI/HMS selector/product paths"
   ],
+  "new_database_migration_required": false,
   "edge_function_deploy_required": false,
-  "motor_migration_revision": "V4.26.01 migration retained unchanged; V4.26.02 is front-end lookup only",
-  "notes": "Global Motor V1.2 Page 2 lookup fix for CHC/VMS/SVM, ES and BFI/HMS; IE1/IE4/IE5 now use shared master data.",
-  "new_database_migration_required": false
+  "notes": "Front-end curve-state patch only; V4.26.02 Motor V1.2 lookup and V4.26.01 database migration remain unchanged."
 }

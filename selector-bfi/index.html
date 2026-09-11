@@ -130,7 +130,7 @@ main{max-width:1480px;grid-template-columns:340px minmax(0,1fr);align-items:star
 .toggle-list input{width:auto;margin:0;accent-color:var(--blue)}
 .duty-point-list{display:grid;gap:7px;margin-top:8px}
 .duty-point-primary,.duty-point-row{display:grid;grid-template-columns:35px minmax(0,1fr) minmax(0,1fr) 28px;gap:6px;align-items:center;padding:7px;border:1px solid #dfe8ee;border-radius:8px;background:#fff}
-.duty-point-primary{grid-template-columns:35px 1fr;background:#f7fafc;color:#526b7b;font-size:11px}
+.duty-point-primary{grid-template-columns:35px minmax(0,1fr) minmax(0,1fr) 28px;background:#f7fafc;color:#526b7b;font-size:11px}
 .duty-point-tag{font-weight:900;color:#15384f}
 .duty-point-row input{margin:0;min-width:0;padding:7px 8px}
 .duty-point-cell{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px;align-items:center}
@@ -313,7 +313,7 @@ body.product-frame main{display:block;max-width:none;padding:8px}body.product-fr
 </main>
 <script src="../supabase/functions/shared-bfi/bfi-data.js?v=42314"></script>
 <script src="../supabase/functions/shared-bfi/bfi-selector-core.js?v=42510"></script>
-<script src="../v40205-motor-baseplate-data.js?v=42602"></script>
+<script src="../v40205-motor-baseplate-data.js?v=42603"></script>
 <script>
 const DB=globalThis.KeySuiteBFIData;if(!DB)throw new Error('KeySuite canonical BFI data failed to load.');
 const KEYSUITE_BFI_CORE=globalThis.KeySuiteBFICore;if(!KEYSUITE_BFI_CORE)throw new Error('KeySuite canonical BFI selector core failed to load.');
@@ -908,7 +908,7 @@ function headFromM(value,unit){
 let keychcExtraDutyPoints=[];
 function keychcDutyPoints(){
  const pts=[];
- if(selectionState.q>0&&selectionState.h>0)pts.push({label:'D1',q:selectionState.q,h:selectionState.h,primary:true});
+ if(selectionState.primaryDutyCleared!==true&&selectionState.q>0&&selectionState.h>0)pts.push({label:'D1',q:selectionState.q,h:selectionState.h,primary:true});
  keychcExtraDutyPoints.forEach((p,i)=>{if(Number(p.q)>0&&Number(p.h)>0)pts.push({label:`D${i+2}`,q:Number(p.q),h:Number(p.h),primary:false});});
  return pts;
 }
@@ -924,7 +924,8 @@ function keychcRenderDutyPointEditor(){
  const fu=(document.getElementById('fu')||{}).value||'m3h',hu=(document.getElementById('hu')||{}).value||'m';
  const fuText=keychcDutyUnitText('fu','m³/h'),huText=keychcDutyUnitText('hu','m');
  const d1Flow=(document.getElementById('flow')||{}).value||0,d1Head=(document.getElementById('head')||{}).value||0;
- let html=`<div class="duty-point-primary"><span class="duty-point-tag">D1</span><span>${Number(d1Flow||0).toLocaleString()} ${fuText}</span><span>${Number(d1Head||0).toLocaleString()} ${huText}</span><span></span></div>`;
+ const d1Active=selectionState.primaryDutyCleared!==true&&String(d1Flow).trim()!==''&&String(d1Head).trim()!=='';
+ let html=`<div class="duty-point-primary"><span class="duty-point-tag">D1</span><span>${d1Active?Number(d1Flow).toLocaleString():'—'} ${d1Active?fuText:''}</span><span>${d1Active?Number(d1Head).toLocaleString():'—'} ${d1Active?huText:''}</span><button class="duty-point-remove" type="button" title="Clear D1" onclick="keychcClearPrimaryDuty()">×</button></div>`;
  keychcExtraDutyPoints.forEach((p,i)=>{
    const flowRaw=flowFromM3h(Number(p.q)||0,fu),headRaw=headFromM(Number(p.h)||0,hu);
    html+=`<div class="duty-point-row"><span class="duty-point-tag">D${i+2}</span><span class="duty-point-cell"><input aria-label="D${i+2} flow" type="number" min="0" step="0.1" value="${Number(flowRaw.toFixed(3))}" oninput="keychcUpdateDutyPoint(${i},'q',this.value)"><span class="duty-point-unit">${fuText}</span></span><span class="duty-point-cell"><input aria-label="D${i+2} head" type="number" min="0" step="0.1" value="${Number(headRaw.toFixed(3))}" oninput="keychcUpdateDutyPoint(${i},'h',this.value)"><span class="duty-point-unit">${huText}</span></span><button class="duty-point-remove" type="button" title="Remove D${i+2}" onclick="keychcRemoveDutyPoint(${i})">×</button></div>`;
@@ -942,6 +943,20 @@ function keychcRemoveDutyPoint(index){
  keychcExtraDutyPoints.splice(index,1);
  keychcRenderDutyPointEditor();
  const best=selectionState.models[selectionState.selectedIndex];if(best)renderSelected();
+}
+function keychcClearPrimaryDuty(){
+ const f=document.getElementById('flow'),h=document.getElementById('head');if(f)f.value='';if(h)h.value='';
+ selectionState={...selectionState,primaryDutyCleared:true};
+ keychcRenderDutyPointEditor();
+ const best=selectionState.models[selectionState.selectedIndex];if(best)renderSelected();
+}
+function keychcSyncPrimaryDutyInputs(){
+ const f=document.getElementById('flow'),h=document.getElementById('head');if(!f||!h)return;
+ const ft=String(f.value??'').trim(),ht=String(h.value??'').trim();
+ if(!ft||!ht||!(Number(ft)>0&&Number(ht)>0)){selectionState={...selectionState,primaryDutyCleared:true};keychcRenderDutyPointEditor();const best=selectionState.models[selectionState.selectedIndex];if(best)renderSelected();return;}
+ const fu=(document.getElementById('fu')||{}).value||'m3h',hu=(document.getElementById('hu')||{}).value||'m';
+ selectionState={...selectionState,q:flowToM3h(Number(ft),fu),h:headToM(Number(ht),hu),rawFlow:Number(ft),rawHead:Number(ht),rawFlowText:ft,rawHeadText:ht,flowUnit:fu,headUnit:hu,primaryDutyCleared:false};
+ keychcRenderDutyPointEditor();const best=selectionState.models[selectionState.selectedIndex];if(best)renderSelected();
 }
 function keychcUpdateDutyPoint(index,field,raw){
  const p=keychcExtraDutyPoints[index];if(!p)return;
@@ -1375,6 +1390,7 @@ function keychcSystemCurveMaxFlow(system,shutoffHead,pumpMaxFlow){
  return flowLimit>0?Math.min(headLimitFlow,flowLimit):headLimitFlow;
 }
 function keychcSystemCurve(){
+ if(selectionState.primaryDutyCleared===true)return null;
  const q=Number(selectionState.q),h=Number(selectionState.h);
  const raw=Number((document.getElementById('staticHead')||{}).value||0);
  const unit=(document.getElementById('staticHeadUnit')||{}).value||'m';
@@ -1556,7 +1572,7 @@ function updateKeyBFICurveStatus(best){
 function renderSelected(){
  const base=selectionState.models[selectionState.selectedIndex];
  if(!base)return;
- const {q,h}=selectionState,enhanced=!!selectionState.enhanced,hz=enhanced?KEYSUITE_ENHANCED_MAX_HZ:keychcCurveHz(),best=enhanced?evaluateEnhancedModel(base,q,h):keychcDisplayModelAtSpeed(base,hz,q,h);
+ const {q,h}=selectionState,hasPrimaryDuty=selectionState.primaryDutyCleared!==true&&q>0&&h>0,enhanced=!!selectionState.enhanced,hz=enhanced?KEYSUITE_ENHANCED_MAX_HZ:keychcCurveHz(),best=enhanced?evaluateEnhancedModel(base,q,h):keychcDisplayModelAtSpeed(base,hz,q,h);
  if(!best)return;
  keybfiSyncPhaseAvailability(best);
  selectionState.curveHz=hz;selectionState.hz=hz;
@@ -1566,7 +1582,7 @@ function renderSelected(){
  const sharedFlowAxis=keychcSharedFlowAxis(best),hc=keychcHeadGraph(best,q,h),op=hc.op,opText=op?`${op.q.toFixed(1)} m³/h @ ${op.head.toFixed(1)} m`:'—';
  const motorClass=(document.getElementById('motorEff')||{}).value||'IE2';
  const selectionHz=Number(selectionState.selectionHz||hz),speedChanged=!enhanced&&Math.abs(selectionHz-hz)>0.01;
- const outside=q<best.headFit.min||q>best.headFit.max;
+ const outside=hasPrimaryDuty&&(q<best.headFit.min||q>best.headFit.max);
  const powerOver=!enhanced&&Number.isFinite(requiredPower)&&requiredPower>Number(best.motor_kw)+1e-6;
  const speedNotice=speedChanged?`<div class="warning">Selected at ${selectionHz.toFixed(1)} Hz. Curves are now simulated at ${hz.toFixed(1)} Hz while keeping ${best.model} selected. Press Select Pump if you want the selector to re-size/re-select at ${hz.toFixed(1)} Hz.</div>`:'';
  const rangeNotice=outside?`<div class="warning">D1 (${q.toFixed(1)} m³/h) is outside this selected model's displayed flow range${enhanced?' on the Enhanced Curve':` at ${hz.toFixed(1)} Hz`}. The selected model is intentionally being kept for reference.</div>`:'';
@@ -1579,13 +1595,13 @@ function renderSelected(){
    <div class="selection-drive"><div class="drive-model">${formatHP(best.motor_hp)} &nbsp; | &nbsp; ${motorClass}</div>${driveDetail}<div class="selection-action-row"><button class="summary-toggle-btn" type="button" onclick="toggleKeyBFISummary()">Summary ${keychcSummaryCollapsed?'▶':'▼'}</button></div></div>
  </div>${speedNotice}${rangeNotice}${powerNotice}
  <div class="kpis ${keychcSummaryCollapsed?'summary-collapsed':''}">
-   <div class="kpi"><span>Required Duty</span><b>${selectionState.quickSelection?reportFlowText():`${q.toFixed(1)} m³/h`}</b><span>${h.toFixed(1)} m</span></div>
-   <div class="kpi"><span>Pump Head</span><b>${Number.isFinite(best.predHead)?best.predHead.toFixed(2):'—'} m</b><span>${Number.isFinite(best.margin)?`margin ${best.margin>=0?'+':''}${best.margin.toFixed(2)} m`:'outside displayed range'}</span></div>
-   <div class="kpi kpi-core"><span>Efficiency</span><b>${requiredEff.toFixed(1)}%</b><span>at D1 · ${q.toFixed(1)} m³/h</span></div>
+   <div class="kpi"><span>Required Duty</span><b>${hasPrimaryDuty?(selectionState.quickSelection?reportFlowText():`${q.toFixed(1)} m³/h`):'—'}</b><span>${hasPrimaryDuty?`${h.toFixed(1)} m`:'Cleared'}</span></div>
+   <div class="kpi"><span>Pump Head</span><b>${hasPrimaryDuty&&Number.isFinite(best.predHead)?best.predHead.toFixed(2)+' m':'—'}</b><span>${hasPrimaryDuty&&Number.isFinite(best.margin)?`margin ${best.margin>=0?'+':''}${best.margin.toFixed(2)} m`:'no active D1'}</span></div>
+   <div class="kpi kpi-core"><span>Efficiency</span><b>${hasPrimaryDuty?requiredEff.toFixed(1)+'%':'—'}</b><span>${hasPrimaryDuty?`at D1 · ${q.toFixed(1)} m³/h`:'no active D1'}</span></div>
    <div class="kpi"><span>Operating Point</span><b style="font-size:15px">${opText}</b><span>${hc.showOrifice&&hc.orifice?'with orifice':(hc.showSystem?'single pump vs system curve':'display off')}</span></div>
-   <div class="kpi kpi-core"><span>Shaft Power</span><b>${requiredPower.toFixed(2)} kW</b><span>${(requiredPower/0.746).toFixed(1)} HP at D1</span></div>
+   <div class="kpi kpi-core"><span>Shaft Power</span><b>${hasPrimaryDuty?requiredPower.toFixed(2)+' kW':'—'}</b><span>${hasPrimaryDuty?(requiredPower/0.746).toFixed(1)+' HP at D1':'no active D1'}</span></div>
    <div class="kpi"><span>Motor Size</span><b>${best.motor_kw.toFixed(2)} kW</b><span>${formatHP(best.motor_hp)}</span></div>
-   <div class="kpi kpi-core"><span>NPSHr</span><b>${requiredNpsh.toFixed(2)} m</b><span>at D1</span></div>
+   <div class="kpi kpi-core"><span>NPSHr</span><b>${hasPrimaryDuty?requiredNpsh.toFixed(2)+' m':'—'}</b><span>${hasPrimaryDuty?'at D1':'no active D1'}</span></div>
    <div class="kpi"><span>Shut-off Head</span><b>${Number.isFinite(hc.shutoffHead)?hc.shutoffHead.toFixed(2):'—'} m</b><span>system curve display limit</span></div>
    <div class="kpi"><span>Pressure Limit</span><b>${best.max_pressure_bar.toFixed(0)} bar</b><span>inlet ${best.max_inlet_bar.toFixed(0)} bar</span></div>
  </div>
@@ -1593,9 +1609,9 @@ function renderSelected(){
  <div class="curve-grid">
    <div class="chart-card chart-main"><div class="chart-title">${enhanced?'Pump Curve · Enhanced':`Pump Curve · ${hz.toFixed(1)} Hz`}</div>${hc.svg}<div class="chart-note">2P–6P curves are optional parallel references; the normal single-pump curve is always shown and D1 remains the single-pump selection duty. System Curve stops at shut-off head or the maximum flow of the highest enabled parallel reference curve, whichever comes first.</div></div>
    <div class="chart-stack">
-     <div class="chart-card chart-aux"><div class="chart-title">Efficiency · Parallel Reference</div>${keychcParallelMetricGraph(best.effFit,'efficiency',q,requiredEff,216,'kW',sharedFlowAxis)}</div>
-     <div class="chart-card chart-aux"><div class="chart-title">Power · Parallel Reference</div>${keychcParallelMetricGraph(best.powerFit,'power',q,requiredPower,216,'kW',sharedFlowAxis)}</div>
-     <div class="chart-card chart-aux"><div class="chart-title">NPSH · Parallel Reference</div>${keychcParallelMetricGraph(best.npshFit,'npsh',q,requiredNpsh,216,'kW',sharedFlowAxis)}</div>
+     <div class="chart-card chart-aux"><div class="chart-title">Efficiency · Parallel Reference</div>${keychcParallelMetricGraph(best.effFit,'efficiency',hasPrimaryDuty?q:NaN,requiredEff,216,'kW',sharedFlowAxis)}</div>
+     <div class="chart-card chart-aux"><div class="chart-title">Power · Parallel Reference</div>${keychcParallelMetricGraph(best.powerFit,'power',hasPrimaryDuty?q:NaN,requiredPower,216,'kW',sharedFlowAxis)}</div>
+     <div class="chart-card chart-aux"><div class="chart-title">NPSH · Parallel Reference</div>${keychcParallelMetricGraph(best.npshFit,'npsh',hasPrimaryDuty?q:NaN,requiredNpsh,216,'kW',sharedFlowAxis)}</div>
    </div>
  </div>
  <div class="iso-note">ISO 9906:Grade 3B</div>`;
@@ -1698,12 +1714,27 @@ function run(){
  }
  all.forEach(x=>x._keysuiteDutyFlow=q);
  all.sort(keychcMostSuitableCompare);
- selectionState={q,h,hz,selectionHz:hz,curveHz:hz,rawFlow,rawHead,rawFlowText,rawHeadText,flowUnit,headUnit,motorEffClass:motorEff.value,motorPhase:motorPhase.value,motorVoltage:+motorVoltage.value,models:all,selectedIndex:0,enhanced};
+ selectionState={q,h,hz,selectionHz:hz,curveHz:hz,rawFlow,rawHead,rawFlowText,rawHeadText,flowUnit,headUnit,motorEffClass:motorEff.value,motorPhase:motorPhase.value,motorVoltage:+motorVoltage.value,models:all,selectedIndex:0,enhanced,primaryDutyCleared:false};
  renderAlternatives();
  renderSelected();
 }
-motorPhase.addEventListener("change",()=>{if(motorPhase.value!=="3Ph"&&enhancedMode)enhancedMode.checked=false;selectionState={...selectionState,motorPhase:motorPhase.value,enhanced:motorPhase.value==="3Ph"&&!!enhancedMode?.checked};updateEnhancedModeUI();updateMotorVoltageRange();run();});
-motorEff.addEventListener("change",()=>{updateMotorVoltageRange();run();});
+function keybfiHandleMotorPhaseChange(){
+ if(motorPhase.value!=="3Ph"&&enhancedMode)enhancedMode.checked=false;
+ selectionState={...selectionState,motorPhase:motorPhase.value,enhanced:motorPhase.value==="3Ph"&&!!enhancedMode?.checked};
+ updateEnhancedModeUI();updateMotorVoltageRange();
+ selectionState={...selectionState,motorEffClass:motorEff.value,motorVoltage:+motorVoltage.value};
+ const productMode=new URLSearchParams(location.search).get('product')==='1';
+ if(productMode&&selectionState.models.length){renderSelected();return;}
+ run();
+}
+function keybfiHandleMotorEffChange(){
+ updateMotorVoltageRange();selectionState={...selectionState,motorEffClass:motorEff.value,motorPhase:motorPhase.value,motorVoltage:+motorVoltage.value};
+ const productMode=new URLSearchParams(location.search).get('product')==='1';
+ if(productMode&&selectionState.models.length){renderSelected();return;}
+ run();
+}
+motorPhase.addEventListener("change",keybfiHandleMotorPhaseChange);
+motorEff.addEventListener("change",keybfiHandleMotorEffChange);
 updateMotorVoltageRange();
 // V4.11.00 Telegram uses the real manual Selector with a preloaded D1.
 (function keychcAutoCurveRequest(){
@@ -1730,6 +1761,8 @@ setTimeout(keychcLoadDisplaySettings,0);
 enhancedMode?.addEventListener('change',()=>{const on=!!enhancedMode.checked&&keybfiEnhancedAllowed();if(enhancedMode.checked&&!on)enhancedMode.checked=false;updateEnhancedModeUI();speedUnit.value='hz';speedInput.value=on?String(KEYSUITE_ENHANCED_MAX_HZ):'50';hzHidden.value=on?String(KEYSUITE_ENHANCED_MAX_HZ):'50';selectionState={...selectionState,enhanced:on,motorPhase:motorPhase.value,models:[],selectedIndex:0,hz:on?KEYSUITE_ENHANCED_MAX_HZ:50,selectionHz:on?KEYSUITE_ENHANCED_MAX_HZ:50,curveHz:on?KEYSUITE_ENHANCED_MAX_HZ:50};alternatives.innerHTML='';out.innerHTML=`<div class="warning">${on?'Enhanced Curve selected. 3 Phase model will use the E suffix. Press Select to calculate.':'Standard curve selected at 50 Hz. Press Select to calculate.'}</div>`;});
 updateEnhancedModeUI();
 go.onclick=run;
+flowInput.addEventListener('input',keychcSyncPrimaryDutyInputs);
+headInput.addEventListener('input',keychcSyncPrimaryDutyInputs);
 keychcRenderDutyPointEditor();
 out.innerHTML='<div class="warning">Enter Required Duty Flow and Head, then select a pump.</div>';
 alternatives.innerHTML='';
