@@ -1,0 +1,18 @@
+{
+  "version": "4.26.01",
+  "baseline": "4.25.14 FULL CLEAN",
+  "upgrade_supported_from": "4.25.12 FULL or later",
+  "motor_source": "004 - Motor 260811 - V1.2.xlsx",
+  "motor_counts": {
+    "IE4_2P": 31,
+    "IE4_4P": 31,
+    "IE5_2P": 26,
+    "IE5_4P": 27
+  },
+  "changes": [
+    "Motor IE4+IE5 refresh",
+    "half-screen split-view responsive layout"
+  ],
+  "edge_function_deploy_required": false,
+  "motor_migration_revision": "source_row-safe exact-model verification"
+}
