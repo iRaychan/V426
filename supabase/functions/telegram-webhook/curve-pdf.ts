@@ -110,7 +110,7 @@ function publicAssetBases(baseUrl:any){
 async function embedPublicPng(pdf:any,baseUrl:any,relativePath:string){
   const cleanPath=String(relativePath||'').replace(/^\/+/,''),errors:string[]=[];
   for(const base of publicAssetBases(baseUrl)){
-    const url=`${base}/${cleanPath}${cleanPath.includes('?')?'&':'?'}v=42607`;
+    const url=`${base}/${cleanPath}${cleanPath.includes('?')?'&':'?'}v=42608`;
     try{
       const response=await fetch(url,{headers:{'Accept':'image/png'}});
       if(!response.ok){errors.push(`${response.status} ${url}`);continue}
@@ -124,7 +124,7 @@ async function embedPublicPng(pdf:any,baseUrl:any,relativePath:string){
 async function embedPublicJpg(pdf:any,baseUrl:any,relativePath:string){
   const cleanPath=String(relativePath||'').replace(/^\/+/,''),errors:string[]=[];
   for(const base of publicAssetBases(baseUrl)){
-    const url=`${base}/${cleanPath}${cleanPath.includes('?')?'&':'?'}v=42607`;
+    const url=`${base}/${cleanPath}${cleanPath.includes('?')?'&':'?'}v=42608`;
     try{
       const response=await fetch(url,{headers:{'Accept':'image/jpeg'}});
       if(!response.ok){errors.push(`${response.status} ${url}`);continue}

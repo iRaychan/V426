@@ -1,17 +1,21 @@
 {
-  "version": "4.26.07",
-  "baseline": "4.26.05 FULL CLEAN",
-  "upgrade_supported_from": "4.26.05",
+  "version": "4.26.08",
+  "baseline": "4.26.07 FULL CLEAN",
+  "upgrade_supported_from": "4.26.07",
   "changes": [
     "KeyBot CHC requests are strictly limited to assigned B.G.Reich CHC C4/G1 and C6/G2 selling series",
     "TESK SVM and OEM VMS are excluded from CHC requests while SVM and VMS retain their own assigned-series routes",
     "CHC G1/C4 and CHC G2/C6 aliases hard-scope the matching hydraulic generation",
     "Assigned Brand plus duty searches all eligible assigned series for that Brand only",
     "Speed output is Hz-first; Enhanced selector and KeyBot PDFs show Max 60 Hz · 3480 rpm",
-    "All V4.26.05 optimized KeyBot PDF asset and deployment-size fixes are retained"
+    "All V4.26.05 optimized KeyBot PDF asset and deployment-size fixes are retained",
+    "KeyBot exact-model Fast Search recognizes BFI T and E suffixes instead of treating them as Customer input",
+    "Dual-phase BFI base models ask for 1 Phase or 3 Phase before generating the exact curve",
+    "Explicit BFI T and E models directly use 3 Phase standard or 3 Phase Enhanced output",
+    "Single-phase-choice BFI models auto-finalize with the correct visible suffix"
   ],
   "new_database_migration_required": false,
   "edge_function_deploy_required": true,
   "edge_function": "telegram-webhook",
-  "notes": "Deploy V4.26.07 web assets first, then redeploy telegram-webhook. No Supabase db push is required."
+  "notes": "Deploy V4.26.08 web assets first, then redeploy telegram-webhook. No Supabase db push is required."
 }
