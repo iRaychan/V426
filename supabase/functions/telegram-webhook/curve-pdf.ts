@@ -8,8 +8,6 @@ import '../shared-bfi/bfi-data.js';
 import '../shared-bfi/bfi-selector-core.js';
 import { CHC_DIMENSIONS } from './chc-dimensions.ts';
 import { CHC_G1_DIMENSIONS } from './chc-g1-dimensions.ts';
-import { REPORT_LOGO_BASE64, ES_DIMENSION_BASE64, CHC_DIMENSION_BASE64 } from './report-assets.ts';
-import { REPORT_LOGO_JPEG_BASE64, ES_DIMENSION_JPEG_BASE64, CHC_DIMENSION_JPEG_BASE64 } from './report-assets-optimized.ts';
 import './es-core.js';
 import './es-data.js';
 import './motor-data.js';
@@ -112,7 +110,7 @@ function publicAssetBases(baseUrl:any){
 async function embedPublicPng(pdf:any,baseUrl:any,relativePath:string){
   const cleanPath=String(relativePath||'').replace(/^\/+/,''),errors:string[]=[];
   for(const base of publicAssetBases(baseUrl)){
-    const url=`${base}/${cleanPath}${cleanPath.includes('?')?'&':'?'}v=42114`;
+    const url=`${base}/${cleanPath}${cleanPath.includes('?')?'&':'?'}v=42607`;
     try{
       const response=await fetch(url,{headers:{'Accept':'image/png'}});
       if(!response.ok){errors.push(`${response.status} ${url}`);continue}
@@ -126,7 +124,7 @@ async function embedPublicPng(pdf:any,baseUrl:any,relativePath:string){
 async function embedPublicJpg(pdf:any,baseUrl:any,relativePath:string){
   const cleanPath=String(relativePath||'').replace(/^\/+/,''),errors:string[]=[];
   for(const base of publicAssetBases(baseUrl)){
-    const url=`${base}/${cleanPath}${cleanPath.includes('?')?'&':'?'}v=42318`;
+    const url=`${base}/${cleanPath}${cleanPath.includes('?')?'&':'?'}v=42607`;
     try{
       const response=await fetch(url,{headers:{'Accept':'image/jpeg'}});
       if(!response.ok){errors.push(`${response.status} ${url}`);continue}
@@ -146,14 +144,49 @@ function reportLogoPayload(value:any){
   if(/^\/9j\//.test(raw))return {type:'jpg',bytes:b64bytes(raw.replace(/\s+/g,''))};
   return null;
 }
-async function embedReportLogo(pdf:any,value:any,optimizePdf=true){
+async function embedReportLogo(pdf:any,value:any,baseUrl:any,optimizePdf=true){
   const custom=reportLogoPayload(value);
   if(custom){
     try{return custom.type==='jpg'?await pdf.embedJpg(custom.bytes):await pdf.embedPng(custom.bytes)}catch(_){}
   }
-  return optimizePdf?await pdf.embedJpg(b64bytes(REPORT_LOGO_JPEG_BASE64)):await pdf.embedPng(b64bytes(REPORT_LOGO_BASE64));
+  // V4.26.05: keep large static PDF artwork out of the Edge Function bundle.
+  // Fetch it from the deployed KeySuite web assets instead, with GitHub as fallback.
+  if(optimizePdf){
+    try{return await embedPublicJpg(pdf,baseUrl,'assets/keybot-pdf/report-logo.jpg')}catch(_){}
+    return await embedPublicPng(pdf,baseUrl,'assets/keybot-pdf/report-logo.png');
+  }
+  try{return await embedPublicPng(pdf,baseUrl,'assets/keybot-pdf/report-logo.png')}catch(_){}
+  return await embedPublicJpg(pdf,baseUrl,'assets/keybot-pdf/report-logo.jpg');
 }
 function sampleFit(f:any,count=120,core:any=CHC_CORE){return core.sampleFit(f,count)}
+// V4.26.05: match KeySelector V4.25.13 display-only Power smoothing.
+// Ignore the zero-flow hydraulic power point, estimate a non-zero shut-off power
+// from the first two positive-flow points, then use shape-preserving cubic
+// interpolation. Selection, duty calculations and motor sizing remain unchanged.
+function keysuitePowerSmoothFit(fit:any){
+  const grouped:any[]=[];
+  for(const p of (fit?.pts||[])){const x=Number(p?.x),y=Number(p?.y);if(!(finite(x)&&x>1e-9&&finite(y)&&y>=0))continue;const last=grouped[grouped.length-1];if(last&&Math.abs(last.x-x)<1e-9){last.sum+=y;last.count++;last.y=last.sum/last.count}else grouped.push({x,y,sum:y,count:1});}
+  grouped.sort((a:any,b:any)=>a.x-b.x);if(grouped.length<2)return null;
+  const x1=grouped[0].x,x2=grouped[1].x,y1=grouped[0].y,y2=grouped[1].y;if(!(x2>x1&&y1>0))return null;
+  const slope=(y2-y1)/(x2-x1);let y0=y1-slope*x1;const minY=Math.max(y1*.15,1e-6),maxY=Math.max(y1*1.75,minY);if(!finite(y0))y0=y1;y0=Math.max(minY,Math.min(maxY,y0));
+  const pts=[{x:0,y:y0},...grouped.map((p:any)=>({x:p.x,y:p.y}))],n=pts.length,h:number[]=[],delta:number[]=[];
+  for(let i=0;i<n-1;i++){h[i]=pts[i+1].x-pts[i].x;if(!(h[i]>0))return null;delta[i]=(pts[i+1].y-pts[i].y)/h[i]}
+  const d=new Array(n).fill(0);
+  if(n===2){d[0]=d[1]=delta[0]}else{
+    for(let i=1;i<n-1;i++){const a=delta[i-1],b=delta[i];if(a===0||b===0||Math.sign(a)!==Math.sign(b))d[i]=0;else{const w1=2*h[i]+h[i-1],w2=h[i]+2*h[i-1];d[i]=(w1+w2)/(w1/a+w2/b)}}
+    const edge=(h0:number,h1:number,s0:number,s1:number)=>{let m=((2*h0+h1)*s0-h0*s1)/(h0+h1);if(Math.sign(m)!==Math.sign(s0))m=0;else if(Math.sign(s0)!==Math.sign(s1)&&Math.abs(m)>Math.abs(3*s0))m=3*s0;return finite(m)?m:0};
+    d[0]=edge(h[0],h[1],delta[0],delta[1]);d[n-1]=edge(h[n-2],h[n-3],delta[n-2],delta[n-3]);
+  }
+  return {pts,d,min:0,max:pts[n-1].x,y0};
+}
+function keysuitePowerSmoothValue(smooth:any,x:number){
+  x=Number(x);if(!smooth||!finite(x))return NaN;const pts=smooth.pts||[],d=smooth.d||[];if(!pts.length||x<pts[0].x-1e-9||x>pts[pts.length-1].x+1e-9)return NaN;
+  if(x<=pts[0].x+1e-9)return pts[0].y;if(x>=pts[pts.length-1].x-1e-9)return pts[pts.length-1].y;let lo=0,hi=pts.length-1;while(hi-lo>1){const mid=(lo+hi)>>1;if(pts[mid].x<=x)lo=mid;else hi=mid}
+  const a=pts[lo],b=pts[hi],hh=b.x-a.x;if(!(hh>0))return a.y;const t=(x-a.x)/hh,t2=t*t,t3=t2*t;return (2*t3-3*t2+1)*a.y+(t3-2*t2+t)*hh*d[lo]+(-2*t3+3*t2)*b.y+(t3-t2)*hh*d[hi];
+}
+function sampleSmoothPower(fit:any,count=180,yScale=1,core:any=CHC_CORE){
+  const smooth=keysuitePowerSmoothFit(fit);if(!smooth)return sampleFit(fit,count,core).map((p:any)=>({x:Number(p.x),y:Number(p.y)*yScale}));const out:XY[]=[];for(let i=0;i<=count;i++){const x=smooth.max*i/count,y=keysuitePowerSmoothValue(smooth,x);if(finite(y))out.push({x,y:Math.max(0,y*yScale)});}return out;
+}
 function sampleEsFit(points:XY[],order:number,yScale=1,count=180){
   const core=(globalThis as any).ESCore;
   const clean=(points||[]).filter(p=>finite(p.x)&&finite(p.y)).sort((a,b)=>a.x-b.x);
@@ -411,7 +444,7 @@ function drawRow4(page:any,font:any,vals:any[],y:number,h=18,weights=[.22,.28,.2
 }
 function drawPage2(page:any,logo:any,font:any,bold:any,a:any){
   drawTechHeader(page,logo,font,bold);
-  const d=dutyParts(a.dutyText),mt=a.motorTech||{};
+  const d=dutyParts(a.dutyText),mt=a.motorTech||{},speedText=a.enhanced?`Max ${fmt(a.hz,0)} Hz · ${fmt(a.rpm,0)} rpm`:`${fmt(a.hz,0)} Hz · ${fmt(a.rpm,0)} rpm`,motorSpeedText=a.enhanced?speedText:(mt.rpm!=null?`${fmt(a.hz,0)} Hz · ${fmt(mt.rpm,0)} rpm`:'-');
   let y=718;
   y=drawSection(page,font,'Operating Data',y);
   y=drawRow4(page,font,['Application','-','',''],y);
@@ -425,7 +458,7 @@ function drawPage2(page:any,logo:any,font:any,bold:any,a:any){
   y=drawRow4(page,font,['Brand',a.brand||'B.G.Reich','Country of Origin','Malaysia'],y);
   y=drawRow4(page,font,['Type',a.family==='CHC'?`${a.series||'VMS'} Pump`:a.family==='BFI'?'HMS Pump':`${a.series||'ES'} End Suction Pump`,'Country of Manufacture','China'],y);
   y=drawRow4(page,font,['Model',{text:a.model,bold:true},'Suction Size',a.suction],y);
-  y=drawRow4(page,font,['Speed',`${fmt(a.rpm,0)} rpm`,'Discharge Size',a.discharge],y);
+  y=drawRow4(page,font,['Speed',speedText,'Discharge Size',a.discharge],y);
   y=drawRow4(page,font,['Material: -','', 'Efficiency',`${fmt(a.eff,1)} %`],y);
   y=drawRow4(page,font,[{text:'Casing',indent:10},a.material.casing,'Brake HP',`${fmt(a.brakeHp,1)} HP`],y);
   y=drawRow4(page,font,[{text:'Impeller',indent:10},a.material.impeller,(a.family==='CHC'||a.family==='BFI')?'No. of Stage':'Impeller Diameter',(a.family==='CHC'||a.family==='BFI')?`${fmt(a.stages,0)} ${Number(a.stages)===1?'Stage':'Stages'}`:`${fmt(a.impellerMm,1)} mm`],y);
@@ -439,7 +472,7 @@ function drawPage2(page:any,logo:any,font:any,bold:any,a:any){
   y=drawRow4(page,font,['Type','TEFC','Country of Manufacture','China'],y);
   y=drawRow4(page,font,['Model',mt.model||'Data Not Available','Efficiency:',a.motorEfficiencyClass||'IE3'],y);
   y=drawRow4(page,font,['Rated Power',`${fmt(a.motorHp,2)} HP / ${fmt(a.motorKw,2)} kW`,'100%',mt.eff100!=null?`${fmt(mt.eff100,1)} %`:'-'],y);
-  y=drawRow4(page,font,['Speed',mt.rpm!=null?`${fmt(mt.rpm,0)} rpm`:'-','75%',mt.eff75!=null?`${fmt(mt.eff75,1)} %`:'-'],y);
+  y=drawRow4(page,font,['Speed',motorSpeedText,'75%',mt.eff75!=null?`${fmt(mt.eff75,1)} %`:'-'],y);
   y=drawRow4(page,font,['Rated FL Amp',mt.ratedAmp!=null?`${fmt(mt.ratedAmp,2)} Amp`:(mt.amp3!=null?`${fmt(mt.amp3,2)} Amp`:'-'),'Power Factor:-',''],y);
   y=drawRow4(page,font,['Frequency',`${fmt(a.hz,0)} Hz`,'100%',mt.pf100!=null?fmt(mt.pf100,2):'-'],y);
   const motorVoltage=a.family==='BFI'&&String(a.phase||'3Ph')==='1Ph'?240:415,motorPhaseText=a.family==='BFI'&&String(a.phase||'3Ph')==='1Ph'?'1 Phase':'3 Phase';
@@ -637,14 +670,14 @@ export async function generateCurvePdf(family:string,q:number,h:number,dutyText:
     selectionShaft=Number(s.shaft||0);rpm=Number(engine?.db?.curves?.[s.series]?.speed_rpm||2900);pole=2;hz=50;
     suction=String(s.connection||'-');discharge=String(s.connection||'-');stages=Number(s.stages||0);maxPressure=Number(s.max_pressure_bar||0);dim=((engine?.generation==='G1'?CHC_G1_DIMENSIONS:CHC_DIMENSIONS) as any)[s.model]||{};
     headPoints=sampleFit(s.headFit,120,engine?.core);effPoints=sampleFit(s.effFit,120,engine?.core);
-    powerPoints=sampleFit(s.powerFit,120,engine?.core).map((p:any)=>({x:Number(p.x),y:Number(p.y)*1.34102209}));
+    powerPoints=sampleSmoothPower(s.powerFit,180,1.34102209,engine?.core);
     npsPoints=sampleFit(s.npshFit,120,engine?.core);
   }else if(isBfi){
     const identityModel=String(displayIdentity?.model||displayIdentity?.display_model||forcedModel||''),enhanced=!!displayIdentity?.enhanced||!!displayIdentity?.enhanced_curve||/E$/i.test(identityModel)||/E$/i.test(String(forcedModel||''));
     const s:any=enhanced?selectBfiEnhanced(q,h,forcedModel):selectBfi(q,h,forcedModel);if(!s)throw new Error(`No BFI${enhanced?' Enhanced':''} model can meet ${fmt(q)} m³/hr @ ${fmt(h)} Mtr.`);
     model=String(s.model).replace(/[TE]$/i,'');motorKw=Number(s.motor_kw||0);motorHp=Number(s.motor_hp||0);eff=Number(s.eff||0);npsh=Number(s.npsh||0);selectionShaft=Number(s.shaft||0);rpm=enhanced?BFI_ENHANCED_MAX_RPM:Number(s.rpm||2900);pole=2;hz=enhanced?BFI_ENHANCED_MAX_HZ:50;
     suction=String(s.inlet||s.connection||'-');discharge=String(s.outlet||s.connection||'-');stages=Number(s.stages||0);maxPressure=Number(s.max_pressure_bar||0);dim=s.dimensions||{};weightKg=Number(s.weight_kg||0);{const phases=Array.isArray(s.phases)&&s.phases.length?s.phases:['3Ph'],identityPhase=String(displayIdentity?.motor_phase||displayIdentity?.phase||'');phase=enhanced?'3Ph':(identityPhase==='1Ph'||identityPhase==='3Ph'?identityPhase:(/T$/i.test(identityModel)?'3Ph':(phases.includes('1Ph')?'1Ph':'3Ph')));if(!phases.includes(phase))phase=phases.includes('3Ph')?'3Ph':String(phases[0]||'1Ph')}
-    headPoints=sampleFit(s.headFit,120,BFI_CORE);effPoints=sampleFit(s.effFit,120,BFI_CORE);powerPoints=sampleFit(s.powerFit,120,BFI_CORE).map((p:any)=>({x:Number(p.x),y:Number(p.y)*1.34102209}));npsPoints=sampleFit(s.npshFit,120,BFI_CORE);
+    headPoints=sampleFit(s.headFit,120,BFI_CORE);effPoints=sampleFit(s.effFit,120,BFI_CORE);powerPoints=sampleSmoothPower(s.powerFit,180,1.34102209,BFI_CORE);npsPoints=sampleFit(s.npshFit,120,BFI_CORE);
     if(enhanced){displayIdentity={...(displayIdentity||{}),enhanced:true,enhanced_curve:true,motor_phase:'3Ph'};}
   }else if(fam==='ES'){
     pole=Number(esPole);if(pole!==2&&pole!==4)throw new Error('ES selection requires 2 Pole or 4 Pole.');
@@ -694,7 +727,7 @@ export async function generateCurvePdf(family:string,q:number,h:number,dutyText:
   ];
   const pdf=await PDFDocument.create(),regular=await pdf.embedFont(StandardFonts.Helvetica),bold=await pdf.embedFont(StandardFonts.HelveticaBold);
   const font={regular,bold};
-  const logo=await embedReportLogo(pdf,displayIdentity?.logo,optimizePdf);
+  const logo=await embedReportLogo(pdf,displayIdentity?.logo,baseUrl,optimizePdf);
   let dimImage:any=null;
   if(isChc){
     const series=String((selectChc(q,h,forcedModel,fam) as any)?.series||'');
@@ -703,14 +736,18 @@ export async function generateCurvePdf(family:string,q:number,h:number,dutyText:
       const key=chcG1DimensionImageKey(series,displayIdentity?.material);
       if(key){if(optimizePdf){try{dimImage=await embedPublicJpg(pdf,baseUrl,`assets/pdf-optimized/chc-g1-dimensions/${key}.jpg`)}catch(_){dimImage=await embedPublicPng(pdf,baseUrl,`assets/chc-g1-dimensions/${key}.png`)}}else dimImage=await embedPublicPng(pdf,baseUrl,`assets/chc-g1-dimensions/${key}.png`);}
     }else{
-      b64=String((CHC_DIMENSION_BASE64 as any)[series]||'');
-      if(optimizePdf){const jpg=String((CHC_DIMENSION_JPEG_BASE64 as any)[series]||'');if(jpg)dimImage=await pdf.embedJpg(b64bytes(jpg));else if(b64)dimImage=await pdf.embedPng(b64bytes(b64));}
-      else if(b64)dimImage=await pdf.embedPng(b64bytes(b64));
+      const match=series.match(/CHC\s*(\d+)/i),slug=match?`chc-${match[1]}`:'';
+      if(slug){
+        if(optimizePdf){
+          try{dimImage=await embedPublicJpg(pdf,baseUrl,`assets/keybot-pdf/chc-dimensions/${slug}.jpg`)}
+          catch(_){dimImage=await embedPublicPng(pdf,baseUrl,`assets/keybot-pdf/chc-dimensions-png/${slug}.png`)}
+        }else dimImage=await embedPublicPng(pdf,baseUrl,`assets/keybot-pdf/chc-dimensions-png/${slug}.png`);
+      }
     }
   }else if(isBfi){
     const summary=bfiDimensionSummary(model,'',dim,phase,weightKg);
     if(summary.image){try{if(optimizePdf){const jpg=String(summary.image).replace(/\.png$/i,'.jpg');try{dimImage=await embedPublicJpg(pdf,baseUrl,`assets/pdf-optimized/bfi-dimensions/${jpg}`)}catch(_){dimImage=await embedPublicPng(pdf,baseUrl,`assets/bfi-dimensions/${summary.image}`)}}else dimImage=await embedPublicPng(pdf,baseUrl,`assets/bfi-dimensions/${summary.image}`)}catch(error){console.warn('BFI dimension drawing unavailable',error)}}
-  }else dimImage=optimizePdf?await pdf.embedJpg(b64bytes(ES_DIMENSION_JPEG_BASE64)):await pdf.embedPng(b64bytes(ES_DIMENSION_BASE64));
+  }else if(optimizePdf){try{dimImage=await embedPublicJpg(pdf,baseUrl,'assets/keybot-pdf/es-dimension.jpg')}catch(_){dimImage=await embedPublicPng(pdf,baseUrl,'assets/keybot-pdf/es-dimension.png')}}else dimImage=await embedPublicPng(pdf,baseUrl,'assets/keybot-pdf/es-dimension.png');
 
   const bfiMotorEff=phase==='1Ph'?'IE1':'IE2',mt=motorTech(motorHp,pole,isChc?String(engine?.motorEff||'IE3'):isBfi?bfiMotorEff:'IE3',phase);
   const pumpEnvelope=isChc?(Number(dim.d1||0)/2+Number(dim.d2||0)):0;
@@ -722,7 +759,8 @@ export async function generateCurvePdf(family:string,q:number,h:number,dutyText:
     :{length:esPs?.dimensions?.overall?.lengthMm?`${fmt(esPs.dimensions.overall.lengthMm,0)} mm`:'-',width:esPs?.dimensions?.overall?.widthMm?`${fmt(esPs.dimensions.overall.widthMm,0)} mm`:'-',height:esPs?.dimensions?.overall?.heightMm?`${fmt(esPs.dimensions.overall.heightMm,0)} mm`:'-',weight:esPs?.dimensions?.overall?.estimatedPumpsetWeightKg?`${fmt(esPs.dimensions.overall.estimatedPumpsetWeightKg,0)} kg`:'-'};
 
   const displayBrand=String(displayIdentity?.brand||'B.G.Reich').trim()||'B.G.Reich',displaySeries=String(displayIdentity?.series||(isChc?String(engine?.label||'CHC'):isBfi?'BFI':'ES')).trim()||(isChc?String(engine?.label||'CHC'):isBfi?'BFI':'ES');let displayModel=String(displayIdentity?.model||model).trim()||model;if(isBfi){const enhanced=!!displayIdentity?.enhanced||!!displayIdentity?.enhanced_curve||/E$/i.test(displayModel)||/E$/i.test(String(forcedModel||'')),aliased=displayModel.replace(/[TE]$/i,'');displayModel=enhanced?aliased+'E':phase==='3Ph'?aliased+'T':aliased;}
-  const pageArgs={family:isChc?'CHC':fam,brand:displayBrand,series:displaySeries,model:displayModel,masterModel:model,dutyText,q,motorHp,motorKw,pole,hz,rpm,eff,npsh,brakeHp,suction,discharge,stages,impellerMm,maxPressure,dim,esPumpset:esPs,motorTech:mt,motorEfficiencyClass:isChc?String(engine?.motorEff||'IE3'):isBfi?bfiMotorEff:'IE3',pumpset,bfiDimension,weightKg,phase,material:materialFor(isChc?'CHC':fam,displayIdentity?.material),charts};
+  const enhanced=isBfi&&(!!displayIdentity?.enhanced||!!displayIdentity?.enhanced_curve||/E$/i.test(displayModel));
+  const pageArgs={family:isChc?'CHC':fam,brand:displayBrand,series:displaySeries,model:displayModel,masterModel:model,dutyText,q,motorHp,motorKw,pole,hz,rpm,enhanced,eff,npsh,brakeHp,suction,discharge,stages,impellerMm,maxPressure,dim,esPumpset:esPs,motorTech:mt,motorEfficiencyClass:isChc?String(engine?.motorEff||'IE3'):isBfi?bfiMotorEff:'IE3',pumpset,bfiDimension,weightKg,phase,material:materialFor(isChc?'CHC':fam,displayIdentity?.material),charts};
 
   const p1=pdf.addPage(LETTER);drawPage1(p1,logo,regular,bold,pageArgs);
   const p2=pdf.addPage(LETTER);drawPage2(p2,logo,font,bold,pageArgs);

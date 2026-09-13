@@ -1,14 +1,17 @@
 {
-  "version": "4.26.03",
-  "baseline": "4.26.02 FULL CLEAN",
-  "upgrade_supported_from": "4.26.02",
+  "version": "4.26.07",
+  "baseline": "4.26.05 FULL CLEAN",
+  "upgrade_supported_from": "4.26.05",
   "changes": [
-    "Product Curve: changing Motor IE/Phase refreshes motor data without re-selecting or hiding the selected pump curve",
-    "D1 can be cleared/removed; clearing Flow or Head removes the active D1 marker/system curve while keeping the selected pump curve visible",
-    "D2-D6 remove behavior retained",
-    "Applied to CHC C4/C6, VMS/SVM aliases and BFI/HMS selector/product paths"
+    "KeyBot CHC requests are strictly limited to assigned B.G.Reich CHC C4/G1 and C6/G2 selling series",
+    "TESK SVM and OEM VMS are excluded from CHC requests while SVM and VMS retain their own assigned-series routes",
+    "CHC G1/C4 and CHC G2/C6 aliases hard-scope the matching hydraulic generation",
+    "Assigned Brand plus duty searches all eligible assigned series for that Brand only",
+    "Speed output is Hz-first; Enhanced selector and KeyBot PDFs show Max 60 Hz · 3480 rpm",
+    "All V4.26.05 optimized KeyBot PDF asset and deployment-size fixes are retained"
   ],
   "new_database_migration_required": false,
-  "edge_function_deploy_required": false,
-  "notes": "Front-end curve-state patch only; V4.26.02 Motor V1.2 lookup and V4.26.01 database migration remain unchanged."
+  "edge_function_deploy_required": true,
+  "edge_function": "telegram-webhook",
+  "notes": "Deploy V4.26.07 web assets first, then redeploy telegram-webhook. No Supabase db push is required."
 }

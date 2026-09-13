@@ -511,12 +511,20 @@ function parseHeadStep(text:string){
 function quoteFamilyFromText(text:any){
   const s=String(text||'');
   if(/\bbfi\b/i.test(s))return 'BFI';
-  if(/\b(?:chc|vms|vertical\s+multistage(?:\s+inline\s+pump)?)\b/i.test(s))return 'CHC';
+  if(/\b(?:chc|vms|svm|vertical\s+multistage(?:\s+inline\s+pump)?)\b/i.test(s))return 'CHC';
   if(/\bes\s*[- ]?4\s*(?:p|pole)?\b|\b4\s*(?:p|pole)\s*es\b/i.test(s))return 'ES4';
   if(/\bes\s*[- ]?2\s*(?:p|pole)?\b|\b2\s*(?:p|pole)\s*es\b/i.test(s))return 'ES2';
   if(/\bes\s*4\s*pole/i.test(s))return 'ES4';
   if(/\bes\s*2\s*pole/i.test(s))return 'ES2';
   if(/\bes\b/i.test(s))return 'ES';
+  return '';
+}
+function quoteChcScopeFromText(text:any){
+  const s=String(text||'');
+  // V4.26.07: an explicit C4/G1 or C6/G2 alias is a hard hydraulic scope.
+  // The selling-series scope (CHC, SVM or VMS) is applied separately.
+  if(/\b(?:CHC|VMS)\s*(?:C4|G1)\b|\b(?:C4|G1)\s*(?:CHC|VMS)\b/i.test(s))return 'CHC_G1';
+  if(/\b(?:CHC|VMS)\s*(?:C6|G2)\b|\b(?:C6|G2)\s*(?:CHC|VMS)\b/i.test(s))return 'CHC_G2';
   return '';
 }
 
@@ -550,6 +558,7 @@ function smartQuoteRequest(text:any){
   const normalized=raw.toLowerCase().replace(/³/g,'3').replace(/m3\s*[.]\s*(?:hr|h)\b/g,'m3/hr').replace(/m3\s*(?:per|\\)\s*(?:hr|h)\b/g,'m3/hr');
   const request:any={raw_input:raw};
   const family=quoteFamilyFromText(raw);if(family)request.family_code=family;
+  const chcScope=quoteChcScopeFromText(raw);if(chcScope)request.chc_scope=chcScope;
   const directModel=parseDirectPumpModel(raw);if(directModel){request.direct_model=directModel.model;request.family_code=directModel.family;request.product_type='pump';if(directModel.family==='BFI'){const phases=bfiAvailablePhases(directModel.model);if(phases.length===1)Object.assign(request,bfiDirectRequestForPhase({...request,bfi_requested_enhanced:/E$/i.test(String(directModel.model||''))},phases[0]));}}
   const keyplc=parseKeyplcSystemRequest(raw);if(keyplc){Object.assign(request,keyplc);request.product_type='keyplc_system';}
   const tankIntent=!keyplc&&/\b(?:gws|tank|pressure\s*(?:tank|vessel))\b/i.test(raw);
@@ -793,7 +802,16 @@ async function guidedUserAvailableProducts(service:any,companyId:string,user:any
   const add=(brandId:any,groupValue:any,brandName:any='',brandSeriesValue:any='')=>{
     const meta=guidedProductGroupMeta(groupValue);if(!allowedGroups.has(meta.group))return;
     const bid=String(brandId||'').trim();if(!bid)return;
-    if(scope==='assigned'&&!assignedKeys.has(`${bid}|*`)&&!assignedKeys.has(`${bid}|${meta.roleFamily}`))return;
+    if(scope==='assigned'){
+      const brandAll=assignedKeys.has(`${bid}|*`),groupKey=assignedKeys.has(`${bid}|${meta.group}`),familyKey=assignedKeys.has(`${bid}|${meta.roleFamily}`);
+      // V4.26.05: CHC C4 and C6 are independently assignable. Honour exact
+      // CHC_G1 / CHC_G2 keys when they exist; only use the old brand|CHC key
+      // as a backward-compatible fallback when no generation-specific CHC key
+      // has been saved for this Brand.
+      const hasSpecificChc=assignedKeys.has(`${bid}|CHC_G1`)||assignedKeys.has(`${bid}|CHC_G2`);
+      const allowed=brandAll||groupKey||(['CHC_G1','CHC_G2'].includes(meta.group)?(!hasSpecificChc&&familyKey):familyKey);
+      if(!allowed)return;
+    }
     const name=String(brandName||brandNames.get(bid)||bid).trim();
     const storedBrandSeries=String(brandSeriesValue||brandSeriesByKey.get(`${bid}|${meta.group}`)||'').trim();
     const masterChcSeries=masterBrandIds.has(bid)&&meta.group==='CHC_G1'?'CHC C4':masterBrandIds.has(bid)&&meta.group==='CHC_G2'?'CHC C6':'';
@@ -1126,6 +1144,24 @@ async function guidedOpenSelection(service:any,telegramToken:string,companyId:st
 function keybotFastLines(text:any){const lines=String(text||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean);return lines.length>=2?{customer:lines[0],product:lines.slice(1).join(' ')}:null}
 function keybotFastLooksLikePump(text:any){return /\b(?:CHC|VMS|SVM|BFI|ES)\b/i.test(String(text||''))}
 function keybotFastLooksLikeExactPumpModel(text:any){return /\b(?:CHC|VMS|SVM|BFI|ES)\s+\d{1,3}\s*-\s*\d{1,3}(?:\s*-\s*\d{1,2})?(?:\s*-\s*\d{1,2})?(?:\s+[24]\s*P(?:OLE)?)?\b/i.test(String(text||''))}
+function keybotFastProductSeriesKey(product:any){return cleanSearch(product?.brand_series||product?.product_label||'')}
+function keybotFastIsAssignedBrand(text:any,products:any[]){const key=cleanSearch(text);return !!key&&(products||[]).some((p:any)=>cleanSearch(p?.brand_name)===key)}
+function keybotFastRequestProductScope(input:any,products:any[]){
+  const raw=String(input||''),stripped=keybotFastStripBrand(raw,products),query=String(stripped.query||raw),brandKey=cleanSearch(stripped.brand),chcScope=quoteChcScopeFromText(query);let series='';
+  if(/\bCHC\b/i.test(query))series='CHC';else if(/\bSVM\b/i.test(query))series='SVM';else if(/\bVMS\b/i.test(query))series='VMS';else if(/\bBFI\b/i.test(query))series='BFI';else if(/\bES\b/i.test(query))series='ES';
+  return {brandKey,series,chcScope,recognized:!!(brandKey||series)};
+}
+function keybotFastProductInScope(product:any,scope:any){
+  if(scope?.brandKey&&cleanSearch(product?.brand_name)!==scope.brandKey)return false;
+  const group=String(product?.price_group||'').toUpperCase(),series=String(scope?.series||'').toUpperCase(),label=keybotFastProductSeriesKey(product),brand=cleanSearch(product?.brand_name);
+  if(scope?.chcScope&&group!==scope.chcScope)return false;
+  if(series==='CHC')return brand==='b g reich'&&['CHC_G1','CHC_G2'].includes(group)&&/^chc(?:\s|$)/.test(label);
+  if(series==='SVM')return ['CHC_G1','CHC_G2'].includes(group)&&/^svm(?:\s|$)/.test(label);
+  if(series==='VMS')return ['CHC_G1','CHC_G2'].includes(group)&&/^vms(?:\s|$)/.test(label);
+  if(series==='BFI')return group==='BFI';
+  if(series==='ES')return group==='ES';
+  return true;
+}
 function keybotFastExactMayOverrideSession(session:any){
   const mode=String(session?.mode||'').trim(),step=String(session?.step||'').trim();if(!mode||!step||step==='idle')return true;
   // V4.19.11: exact-model Fast Search has priority over ordinary navigation and stale
@@ -1147,14 +1183,15 @@ async function keybotFastOpenPreparedMatch(service:any,telegramToken:string,comp
   if(group==='ES'&&(match?.keybot_fast_choose_pole===true||meta.keybot_fast_choose_pole===true)&&poles.length>1){const exact=guidedCatalogExactChoice(match.selected),c={...sessionContext(session),...context,keybot_fast_search:true,guided_product:product,guided_catalog_path:match.path||[match.selected],guided_catalog_choices:null,guided_exact_model:{...exact,pole:0,rpm:0,available_poles:poles},guided_exact_pole_action:'fast_auto'};const saved=await saveKeybotSession(service,companyId,chatId,senderId,{mode:'guided',step:'guided_exact_es_pole',selected_customer_id:String(customer?.id||'')||null,context:c});const rows=poles.map((p:number)=>[`ES ${p} Pole`]);rows.push(['⬅️ Back','🔄 New Request']);await telegramSend(telegramToken,chatId,`Model: ${String(exact.display_model||exact.master_model||'ES')}\n\nChoose Pole:`,telegramReplyKeyboard(rows));return saved||session}
   return await keybotFastOpenMatch(service,telegramToken,companyId,chatId,senderId,session,customer,match,context);
 }
-function keybotFastStripBrand(text:any,products:any[]){let raw=String(text||'').trim(),picked='';const brands=guidedUnique((products||[]).map((p:any)=>String(p.brand_name||'').trim())).sort((a:any,b:any)=>b.length-a.length);for(const b of brands){const esc=b.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),re=new RegExp(`^${esc}(?:\\s+|[-:·]\\s*)`,'i');if(re.test(raw)){picked=b;raw=raw.replace(re,'').trim();break}}return {brand:picked,query:raw}}
+function keybotFastStripBrand(text:any,products:any[]){let raw=String(text||'').trim(),picked='';const brands=guidedUnique((products||[]).map((p:any)=>String(p.brand_name||'').trim())).sort((a:any,b:any)=>b.length-a.length);for(const b of brands){const esc=b.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),re=new RegExp(`^${esc}(?:\\s+|[,;:\-·]\\s*)`,'i');if(re.test(raw)){picked=b;raw=raw.replace(re,'').trim();break}}return {brand:picked,query:raw}}
 async function keybotFastModelMatches(service:any,companyId:string,products:any[],input:any){
-  const scoped=keybotFastStripBrand(input,products),poleMatch=String(scoped.query||'').match(/\b([24])\s*P(?:OLE)?\b/i),requestedPole=Number(poleMatch?.[1]||0),modelQuery=String(scoped.query||'').replace(/\b[24]\s*P(?:OLE)?\b/ig,' ').replace(/\s+/g,' ').trim(),brandKey=cleanSearch(scoped.brand),query=cleanSearch(modelQuery),exact:any[]=[],partial:any[]=[];if(!query)return [];
+  const scoped=keybotFastStripBrand(input,products),requestScope=keybotFastRequestProductScope(input,products),poleMatch=String(scoped.query||'').match(/\b([24])\s*P(?:OLE)?\b/i),requestedPole=Number(poleMatch?.[1]||0),modelQuery=String(scoped.query||'').replace(/\b[24]\s*P(?:OLE)?\b/ig,' ').replace(/\s+/g,' ').trim(),brandKey=cleanSearch(scoped.brand),query=cleanSearch(modelQuery),exact:any[]=[],partial:any[]=[];if(!query)return [];
   const esDb:any=(globalThis as any).ES_SELECTOR_DB;
   for(const product of products||[]){
     const group=String(product?.price_group||'').toUpperCase();
     if(!['CHC_G1','CHC_G2','BFI','ES'].includes(group))continue;
     if(brandKey&&cleanSearch(product.brand_name)!==brandKey)continue;
+    if(!keybotFastProductInScope(product,requestScope))continue;
     const presentation=await guidedProductPresentation(service,companyId,product);
     if(group==='ES'){
       // V4.19.12: ES Fast Search uses the hydraulic master dataset as the model source of truth.
@@ -1203,9 +1240,12 @@ async function keybotFastHandleProduct(service:any,telegramToken:string,companyI
   const products=customer?await guidedProductsForContext(service,companyId,user,String(customer.id)):await guidedUserAvailableProducts(service,companyId,user),raw=String(productText||'').trim();
   if(keybotFastLooksLikeExactPumpModel(raw)){const exactMatches=keybotFastPrepareMatches(await keybotFastModelMatches(service,companyId,products,raw),raw);if(exactMatches.length===1)return await keybotFastOpenPreparedMatch(service,telegramToken,companyId,chatId,senderId,session,customer,exactMatches[0],{keysuite_user_email:user.email,...(customer?{customer_name:customer.company_name}:{})});if(exactMatches.length>1){const saved=await saveKeybotSession(service,companyId,chatId,senderId,{mode:'guided',step:'guided_fast_model_choice',selected_customer_id:String(customer?.id||'')||null,context:{...sessionContext(session),keysuite_user_email:user.email,...(customer?{customer_name:customer.company_name}:{}),guided_fast_matches:exactMatches}});await telegramSend(telegramToken,chatId,'More than one matching model was found. Choose the desired Brand / Model:',keybotFastMatchKeyboard(exactMatches));return saved||session}await telegramSend(telegramToken,chatId,`No exact assigned pump model matched “${raw}”.`,mainMenuMarkup());return session}
   const parsed=smartQuoteRequest(productText);
-  if(Number(parsed.flow_m3h)>0&&Number(parsed.head_m)>0&&keybotFastLooksLikePump(raw)){
-    const scoped=keybotFastStripBrand(raw,products),brandKey=cleanSearch(scoped.brand),family=quoteFamilyFromText(raw),wanted=(products||[]).filter((p:any)=>p.has_curve===true).filter((p:any)=>!brandKey||cleanSearch(p.brand_name)===brandKey).filter((p:any)=>{const g=String(p.price_group||'').toUpperCase();return family.startsWith('ES')?g==='ES':family==='BFI'?g==='BFI':['CHC_G1','CHC_G2'].includes(g)});
-    const candidates=await guidedSizeSelectedProducts(service,companyId,wanted,Number(parsed.flow_m3h),Number(parsed.head_m));if(!candidates.length){await telegramSend(telegramToken,chatId,'No suitable model was found for that Customer / Brand / Series / Duty.',mainMenuMarkup());return session}const chosen=candidates[0],product=chosen.product,pole=Number(chosen.pole||0),saved=await saveKeybotSession(service,companyId,chatId,senderId,{mode:'guided',step:'guided_product_action',flow_m3h:Number(parsed.flow_m3h),head_m:Number(parsed.head_m),selected_customer_id:String(customer?.id||'')||null,context:{...sessionContext(session),keysuite_user_email:user.email,...(customer?{customer_name:customer.company_name}:{}),guided_product:product,pending_item:chosen,guided_selection_candidates:candidates,guided_pending_request:{...parsed,pole,force_model:String(chosen.model||'')}}});await telegramSend(telegramToken,chatId,`${customer?`Customer: ${customer.company_name}\n\n`:''}Recommended - ${guidedSelectionPumpLabel(chosen)}\nMotor: ${oneDecimal(chosen.motor_kw||0)} kW${pole?` · ${pole}P`:''}\nDuty: ${oneDecimal(parsed.flow_m3h)} m³/hr @ ${oneDecimal(parsed.head_m)} Mtr\n\nChoose action:`,guidedProductActionMenu(String(chosen.family||'').toUpperCase()==='ES'));return saved||session
+  const requestScope=keybotFastRequestProductScope(raw,products);
+  if(Number(parsed.flow_m3h)>0&&Number(parsed.head_m)>0&&requestScope.recognized){
+    const family=quoteFamilyFromText(raw),chcScope=quoteChcScopeFromText(raw),wanted=(products||[]).filter((p:any)=>p.has_curve===true).filter((p:any)=>keybotFastProductInScope(p,requestScope)).filter((p:any)=>{const g=String(p.price_group||'').toUpperCase();if(requestScope.series||(!family&&requestScope.brandKey))return true;if(family.startsWith('ES'))return g==='ES';if(family==='BFI')return g==='BFI';if(!['CHC_G1','CHC_G2'].includes(g))return false;return chcScope?g===chcScope:true;});
+    const q=Number(parsed.flow_m3h),h=Number(parsed.head_m),candidates=await guidedSizeSelectedProducts(service,companyId,wanted,q,h);if(!candidates.length){await telegramSend(telegramToken,chatId,'No suitable model was found for that Customer / Brand / Series / Duty.',mainMenuMarkup());return session}
+    if(family==='CHC'||(!family&&requestScope.brandKey)){const token=guidedSelectionNewToken(),duty=dutyDisplay(String(productText||''),q,h).duty_text,saved=await saveKeybotSession(service,companyId,chatId,senderId,{mode:'guided',step:'guided_selection_results',flow_m3h:q,head_m:h,selected_customer_id:String(customer?.id||'')||null,context:{...sessionContext(session),keysuite_user_email:user.email,...(customer?{customer_name:customer.company_name}:{}),guided_selection_products:wanted,guided_selection_keys:wanted.map((p:any)=>String(p.key)),guided_selection_candidates:candidates,guided_selection_token:token,guided_duty_text:duty,guided_pending_request:{...parsed,chc_scope:chcScope||'',flow_m3h:q,head_m:h}}});await telegramSend(telegramToken,chatId,`${customer?`Customer: ${customer.company_name}\n\n`:''}${guidedSelectionResultText(q,h,candidates,duty)}`,guidedSelectionResultKeyboard(candidates,token));return saved||session}
+    const chosen=candidates[0],product=chosen.product,pole=Number(chosen.pole||0),saved=await saveKeybotSession(service,companyId,chatId,senderId,{mode:'guided',step:'guided_product_action',flow_m3h:q,head_m:h,selected_customer_id:String(customer?.id||'')||null,context:{...sessionContext(session),keysuite_user_email:user.email,...(customer?{customer_name:customer.company_name}:{}),guided_product:product,pending_item:chosen,guided_selection_candidates:candidates,guided_pending_request:{...parsed,pole,force_model:String(chosen.model||'')}}});await telegramSend(telegramToken,chatId,`${customer?`Customer: ${customer.company_name}\n\n`:''}Recommended - ${guidedSelectionPumpLabel(chosen)}\nMotor: ${oneDecimal(chosen.motor_kw||0)} kW${pole?` · ${pole}P`:''}\nDuty: ${oneDecimal(q)} m³/hr @ ${oneDecimal(h)} Mtr\n\nChoose action:`,guidedProductActionMenu(String(chosen.family||'').toUpperCase()==='ES'));return saved||session
   }
   if(keybotFastLooksLikePump(raw)){
     const matches=keybotFastPrepareMatches(await keybotFastModelMatches(service,companyId,products,raw),raw);if(matches.length===1)return await keybotFastOpenPreparedMatch(service,telegramToken,companyId,chatId,senderId,session,customer,matches[0],{keysuite_user_email:user.email,...(customer?{customer_name:customer.company_name}:{})});if(matches.length>1){const saved=await saveKeybotSession(service,companyId,chatId,senderId,{mode:'guided',step:'guided_fast_model_choice',selected_customer_id:String(customer?.id||'')||null,context:{...sessionContext(session),keysuite_user_email:user.email,...(customer?{customer_name:customer.company_name}:{}),guided_fast_matches:matches}});await telegramSend(telegramToken,chatId,'More than one matching model was found. Choose the desired Brand / Model:',keybotFastMatchKeyboard(matches));return saved||session}
@@ -1875,6 +1915,7 @@ function simpleRequestHasTechnical(req:any){return !!(req?.product_type||req?.fa
 function simpleRequestMenuText(){return 'Fast Search\n\nType a model directly:\nCHC 10-100\nBFI 8-3\nB.G.Reich CHC 10-100\nES 32-20 4P\n\nFor Customer + Product, use 2 rows:\nKey\nCHC 30m3/hr @ 90m\n\nRow 1 = Company / Customer\nRow 2 = Brand / Series / Model / Duty\n\nYou can still use Customer, Product or Selection below.'}
 async function sendSimpleCurve(service:any,telegramToken:string,companyId:string,chatId:string,senderId:string,session:any,request:any){
   const req=mergeQuoteRequest(sessionContext(session).pending_request,request);req.product_type='pump';
+  if(!req.chc_scope){const scope=quoteChcScopeFromText(req.raw_input);if(scope)req.chc_scope=scope;}
   if(bfiDirectNeedsPhase(req)){
     const pending={...req,direct_model:bfiBaseModelName(req.direct_model),bfi_requested_enhanced:/E$/i.test(String(req.direct_model||'')),bfi_phase_confirmed:false};
     const saved=await saveKeybotSession(service,companyId,chatId,senderId,{mode:'smart_curve',step:'bfi_waiting_phase',selected_customer_id:null,context:{pending_request:pending,pending_item:null}});
@@ -1885,8 +1926,35 @@ async function sendSimpleCurve(service:any,telegramToken:string,companyId:string
   if(missing==='duty'){const saved=await saveKeybotSession(service,companyId,chatId,senderId,{mode:'smart_curve',step:'smart_waiting_flow',selected_customer_id:null,context:{pending_request:req}});await telegramSend(telegramToken,chatId,'Please enter Flow & Head together.\nExample: 30m3/hr @ 80m',telegramRemoveKeyboard());return saved}
   if(missing==='family'){const saved=await saveKeybotSession(service,companyId,chatId,senderId,{mode:'smart_curve',step:'smart_waiting_family',selected_customer_id:null,context:{pending_request:req}});await telegramSend(telegramToken,chatId,'Please choose the pump series:',telegramReplyKeyboard([['CHC','BFI'],['ES 2 Pole','ES 4 Pole'],['🔄 New Request']]));return saved}
   const code=simplePumpFamilyCode(req),family=code==='CHC'?'CHC':code==='BFI'?'BFI':'ES',pole=code==='ES4'?4:code==='ES2'?2:0,q=Number(req.flow_m3h),h=Number(req.head_m),display=dutyDisplay(String(req.raw_input||''),q,h),opts=mergePumpOptions({},req.options,req.qty||1);
-  try{const pdfMeta=await generateCurvePdf(family,q,h,display.duty_text,env('KEYSUITE_PUBLIC_URL'),pole);const sent=await telegramSendDocument(telegramToken,chatId,pdfMeta.bytes,pdfMeta.filename,`${family==='ES'?esPoleLabel(pole):family} curve ready\n${display.duty_text}\nSelected: ${pdfMeta.model}`);let item:any=selectPumpSummary(family,q,h,pole);item=applyPumpOptionsToItem({...item,qty:Math.max(1,Number(req.qty||1))},opts);const saved=await saveKeybotSession(service,companyId,chatId,senderId,{mode:'curve',step:'curve_result',flow_m3h:q,head_m:h,selected_customer_id:null,context:{pending_request:req,pending_item:item,curve_pdf:{family,pole,q,h,duty:display.duty_text,filename:pdfMeta.filename}}});await telegramSend(telegramToken,chatId,sent.ok?'Curve ready.':'The curve was prepared but Telegram could not send the PDF.',simpleCurveMenu());return saved}catch(error){await telegramSend(telegramToken,chatId,`KeyBot could not generate this curve.\n\n${error instanceof Error?error.message:String(error)}`,mainMenuMarkup());return session}
+
+  // V4.26.07: CHC is a selling-series request, not a generic VMS-family alias.
+  // Search only assigned CHC C4/C6 products. SVM and VMS stay inside their own
+  // configured selling series, while explicit C4/G1 or C6/G2 remains a hard
+  // hydraulic-generation scope.
+  if(family==='CHC'){
+    try{
+      const user=await linkedKeySuiteUser(service,companyId,senderId);
+      if(user){
+        const customerId=String(session?.selected_customer_id||'').trim(),customer=customerId?await guidedAllowedCustomerById(service,companyId,user,customerId):null;
+        let products=customer?await guidedProductsForContext(service,companyId,user,customerId):await guidedUserAvailableProducts(service,companyId,user);
+        const scope=String(req.chc_scope||'').toUpperCase(),rawScopeInput=String(req.raw_input||''),requestScope=keybotFastRequestProductScope(/\b(?:CHC|SVM|VMS)\b/i.test(rawScopeInput)?rawScopeInput:`CHC ${rawScopeInput}`,products);
+        products=(products||[]).filter((p:any)=>keybotFastProductInScope(p,requestScope)).filter((p:any)=>{const g=String(p?.price_group||'').toUpperCase();if(!['CHC_G1','CHC_G2'].includes(g))return false;return scope?g===scope:true;});
+        if(!products.length){const label=scope==='CHC_G1'?'CHC C4':scope==='CHC_G2'?'CHC C6':'CHC';await telegramSend(telegramToken,chatId,`${label} is not assigned to this KeySuite user${customer?' / Customer':''}.`,mainMenuMarkup());return session;}
+        const candidates=await guidedSizeSelectedProducts(service,companyId,products,q,h);
+        if(!candidates.length){await telegramSend(telegramToken,chatId,guidedSelectionResultText(q,h,[],display.duty_text),mainMenuMarkup());return session;}
+        const token=guidedSelectionNewToken(),saved=await saveKeybotSession(service,companyId,chatId,senderId,{mode:'guided',step:'guided_selection_results',flow_m3h:q,head_m:h,selected_customer_id:customerId||null,context:{...sessionContext(session),keysuite_user_email:user.email,...(customer?{customer_name:customer.company_name}:{}),guided_selection_products:products,guided_selection_keys:products.map((p:any)=>String(p.key)),guided_selection_candidates:candidates,guided_selection_token:token,guided_duty_text:display.duty_text,guided_pending_request:{...req,flow_m3h:q,head_m:h}}});
+        await telegramSend(telegramToken,chatId,guidedSelectionResultText(q,h,candidates,display.duty_text),guidedSelectionResultKeyboard(candidates,token));return saved||session;
+      }
+      // Unlinked legacy fallback: explicit C4/C6 is still honoured; generic CHC
+      // retains the previous C6 default because no user assignment is available.
+      if(req.chc_scope==='CHC_G1')req.family_code='CHC_G1';else if(req.chc_scope==='CHC_G2')req.family_code='CHC_G2';
+    }catch(error){console.error('[KeySuite V4.26.07] assignment-aware CHC curve sizing failed',error);}
+  }
+
+  const resolvedFamily=family==='CHC'&&req.chc_scope==='CHC_G1'?'CHC_G1':family==='CHC'&&req.chc_scope==='CHC_G2'?'CHC_G2':family;
+  try{const pdfMeta=await generateCurvePdf(resolvedFamily,q,h,display.duty_text,env('KEYSUITE_PUBLIC_URL'),pole);const sent=await telegramSendDocument(telegramToken,chatId,pdfMeta.bytes,pdfMeta.filename,`${resolvedFamily==='ES'?esPoleLabel(pole):resolvedFamily} curve ready\n${display.duty_text}\nSelected: ${pdfMeta.model}`);let item:any=selectPumpSummary(resolvedFamily,q,h,pole);item=applyPumpOptionsToItem({...item,qty:Math.max(1,Number(req.qty||1))},opts);const saved=await saveKeybotSession(service,companyId,chatId,senderId,{mode:'curve',step:'curve_result',flow_m3h:q,head_m:h,selected_customer_id:null,context:{pending_request:req,pending_item:item,curve_pdf:{family:resolvedFamily,pole,q,h,duty:display.duty_text,filename:pdfMeta.filename}}});await telegramSend(telegramToken,chatId,sent.ok?'Curve ready.':'The curve was prepared but Telegram could not send the PDF.',simpleCurveMenu());return saved}catch(error){await telegramSend(telegramToken,chatId,`KeyBot could not generate this curve.\n\n${error instanceof Error?error.message:String(error)}`,mainMenuMarkup());return session}
 }
+
 async function sendSimplePumpPrice(service:any,telegramToken:string,companyId:string,chatId:string,senderId:string,session:any,customer:any,user:any,request:any){
   const req=mergeQuoteRequest(sessionContext(session).pending_request,request);req.product_type='pump';const missing=simplePumpMissing(req),baseCtx={...sessionContext(session),keysuite_user_email:String(user.email||''),customer_name:String(customer.company_name||''),pending_request:req};
   if(bfiDirectNeedsPhase(req)){
@@ -2152,7 +2220,12 @@ Deno.serve(async(req)=>{
 
     // V4.19.11 Fast Search: exact model recognition runs before hydraulic-number parsing; sizing asks Flow & Head together.
     if(!callbackQuery&&text&&!menuText){
-      const user=await linkedKeySuiteUser(service,keySuiteCompanyId,senderId),two=keybotFastLines(rawTelegramText);
+      const user=await linkedKeySuiteUser(service,keySuiteCompanyId,senderId),two=keybotFastLines(rawTelegramText),assignedProducts=user?await guidedUserAvailableProducts(service,keySuiteCompanyId,user):[];
+      // V4.26.07: an assigned Brand on row 1 plus a duty on row 2 is Brand
+      // sizing, not a Customer search.
+      if(user&&two&&keybotFastIsAssignedBrand(two.customer,assignedProducts)){
+        const parsed=smartQuoteRequest(two.product);if(Number(parsed.flow_m3h)>0&&Number(parsed.head_m)>0){session=await saveKeybotSession(service,keySuiteCompanyId,chatId,senderId,{mode:'',step:'idle',flow_m3h:null,head_m:null,flow_raw:null,head_raw:null,selected_customer_id:null,context:{}})||session;session=await keybotFastHandleProduct(service,telegramToken,keySuiteCompanyId,chatId,senderId,session,user,null,rawTelegramText);return json({ok:true,status:'fast_brand_duty'});}
+      }
       if(user&&two&&keybotFastLooksLikePump(two.product)){
         const matches=await findGuidedCustomers(service,keySuiteCompanyId,user,two.customer);if(!matches.length){await telegramSend(telegramToken,chatId,`No Customer matched “${two.customer}”.`,mainMenuMarkup());return json({ok:true,status:'fast_customer_no_match'})}
         const exact=matches.find((x:any)=>cleanSearch(x.company_name)===cleanSearch(two.customer)),chosen=exact||matches.length===1?exact||matches[0]:null;if(chosen){session=await keybotFastHandleProduct(service,telegramToken,keySuiteCompanyId,chatId,senderId,session,user,chosen,two.product);return json({ok:true,status:'fast_customer_product'})}
@@ -2163,6 +2236,11 @@ Deno.serve(async(req)=>{
         // Do not carry the old temporary request/customer/model into the new exact-model lookup.
         session=await saveKeybotSession(service,keySuiteCompanyId,chatId,senderId,{mode:'',step:'idle',flow_m3h:null,head_m:null,flow_raw:null,head_raw:null,selected_customer_id:null,context:{}})||session;
         const products=await guidedUserAvailableProducts(service,keySuiteCompanyId,user),matches=keybotFastPrepareMatches(await keybotFastModelMatches(service,keySuiteCompanyId,products,rawTelegramText),rawTelegramText);if(matches.length===1){session=await keybotFastOpenPreparedMatch(service,telegramToken,keySuiteCompanyId,chatId,senderId,session,null,matches[0],{keysuite_user_email:user.email});return json({ok:true,status:matches[0]?.keybot_fast_choose_pole?'fast_exact_es_pole':'fast_exact_model'})}if(matches.length>1){session=await saveKeybotSession(service,keySuiteCompanyId,chatId,senderId,{mode:'guided',step:'guided_fast_model_choice',selected_customer_id:null,context:{keysuite_user_email:user.email,guided_fast_matches:matches}});await telegramSend(telegramToken,chatId,'More than one matching model was found. Choose the desired Brand / Model:',keybotFastMatchKeyboard(matches));return json({ok:true,status:'fast_model_choice',count:matches.length})}await telegramSend(telegramToken,chatId,`No exact assigned pump model matched “${rawTelegramText}”.\n\nTry the exact Brand + Model, for example B.G.Reich ES 80-26 4P.`,mainMenuMarkup());return json({ok:true,status:'fast_exact_model_not_found'});
+      }
+      // V4.26.07: direct Brand / Series + Duty input uses the same strict
+      // Brand Series scope as guided Selection.
+      if(user&&keybotFastExactMayOverrideSession(session)){
+        const parsed=smartQuoteRequest(rawTelegramText),requestScope=keybotFastRequestProductScope(rawTelegramText,assignedProducts);if(requestScope.recognized&&Number(parsed.flow_m3h)>0&&Number(parsed.head_m)>0){session=await saveKeybotSession(service,keySuiteCompanyId,chatId,senderId,{mode:'',step:'idle',flow_m3h:null,head_m:null,flow_raw:null,head_raw:null,selected_customer_id:null,context:{}})||session;session=await keybotFastHandleProduct(service,telegramToken,keySuiteCompanyId,chatId,senderId,session,user,null,rawTelegramText);return json({ok:true,status:'fast_series_duty'});}
       }
     }
     if(!callbackQuery&&session?.mode==='guided'&&session?.step==='guided_fast_customer_choice'&&text){const user=await linkedKeySuiteUser(service,keySuiteCompanyId,senderId),c=sessionContext(session),choices=Array.isArray(c.guided_fast_customer_choices)?c.guided_fast_customer_choices:[],pick=choices.find((x:any)=>cleanSearch(x.label)===cleanButton);if(user&&pick){const customer=await guidedAllowedCustomerById(service,keySuiteCompanyId,user,String(pick.id));if(customer){session=await keybotFastHandleProduct(service,telegramToken,keySuiteCompanyId,chatId,senderId,session,user,customer,c.guided_fast_product_text||'');return json({ok:true,status:'fast_customer_selected'})}}await telegramSend(telegramToken,chatId,'Choose one of the shown Customers.',telegramReplyKeyboard([...choices.map((x:any)=>[x.label]),['⬅️ Back','🔄 New Request']]));return json({ok:true,status:'fast_customer_waiting'})}

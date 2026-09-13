@@ -313,7 +313,7 @@ body.product-frame main{display:block;max-width:none;padding:8px}body.product-fr
 </main>
 <script src="../supabase/functions/shared-chc/chc-data.js?v=41212"></script>
 <script src="../supabase/functions/shared-chc/chc-selector-core.js?v=42510"></script>
-<script src="../v40205-motor-baseplate-data.js?v=42603"></script>
+<script src="../v40205-motor-baseplate-data.js?v=42605"></script>
 <script>
 const DB=globalThis.KeySuiteCHCData;if(!DB)throw new Error('KeySuite canonical CHC data failed to load.');
 const KEYSUITE_CHC_CORE=globalThis.KeySuiteCHCCore;if(!KEYSUITE_CHC_CORE)throw new Error('KeySuite canonical CHC selector core failed to load.');
@@ -1205,7 +1205,7 @@ function exportPDF(requestedFilename){
    <tr class="table-block"><td>Brand</td><td>B.G.Reich</td><td>Country of Origin</td><td>Malaysia</td></tr>
    <tr class="table-block"><td>Type</td><td>VMS Pump</td><td>Country of Manufacture</td><td>China</td></tr>
    <tr class="table-block"><td>Model</td><td class="model-value">${pdfDisplayModel}</td><td>Suction Size</td><td>${best.connection}</td></tr>
-   <tr class="table-block"><td>Speed</td><td>${enhanced?`${KEYSUITE_ENHANCED_MAX_RPM} rpm`:`${Math.round(hz*58)} rpm`}</td><td>Discharge Size</td><td>${best.connection}</td></tr>
+   <tr class="table-block"><td>Speed</td><td>${enhanced?`Max ${KEYSUITE_ENHANCED_MAX_HZ} Hz · ${KEYSUITE_ENHANCED_MAX_RPM} rpm`:`${hz.toFixed(0)} Hz · ${Math.round(hz*58)} rpm`}</td><td>Discharge Size</td><td>${best.connection}</td></tr>
    <tr class="table-block"><td class="material-heading no-bottom">Material: -</td><td class="no-bottom"></td><td>Efficiency</td><td>${formatPdfNumber(requiredEff,1)} %</td></tr>
    <tr class="table-block"><td class="material-label indent">Casing</td><td class="material-value">${keysuiteChcMaterialDisplay().casing}</td><td>Brake HP</td><td>${formatPdfNumber(requiredPower/0.746,1)} HP</td></tr>
    <tr class="table-block"><td class="material-label indent">Impeller</td><td class="material-value">${keysuiteChcMaterialDisplay().impeller}</td><td>No. of Stage</td><td>${best.stages} Stages</td></tr>
@@ -1219,7 +1219,7 @@ function exportPDF(requestedFilename){
    <tr class="table-block"><td>Type</td><td>TEFC</td><td>Country of Manufacture</td><td>China</td></tr>
    <tr class="table-block"><td>Model</td><td>${motorData.available?motorData.model:"Data Not Available"}</td><td class="no-bottom field-heading">Efficiency:</td><td class="no-bottom">${motorEffClass}</td></tr>
    <tr class="table-block"><td>Rated Power</td><td>${formatHP(best.motor_hp)} / ${formatPdfNumber(best.motor_kw,2)} kW</td><td class="no-top no-bottom indent">100%</td><td class="no-top no-bottom">${motorData.available?motorValue(motorData.eff100," %"):"-"}</td></tr>
-   <tr class="table-block"><td>Speed</td><td>${enhanced?`${KEYSUITE_ENHANCED_MAX_RPM} rpm`:(motorData.available&&motorData.rpm!==null?motorData.rpm+" rpm":"-")}</td><td class="no-top indent">75%</td><td class="no-top">${motorData.available?motorValue(motorData.eff75," %"):"-"}</td></tr>
+   <tr class="table-block"><td>Speed</td><td>${enhanced?`Max ${KEYSUITE_ENHANCED_MAX_HZ} Hz · ${KEYSUITE_ENHANCED_MAX_RPM} rpm`:(motorData.available&&motorData.rpm!==null?`${hz.toFixed(0)} Hz · ${motorData.rpm} rpm`:"-")}</td><td class="no-top indent">75%</td><td class="no-top">${motorData.available?motorValue(motorData.eff75," %"):"-"}</td></tr>
    <tr class="table-block"><td>Rated FL Amp</td><td>${motorData.available?motorValue(motorData.amp," Amp"):"-"}</td><td class="no-bottom field-heading">Power Factor:-</td><td class="no-bottom"></td></tr>
    <tr class="table-block"><td>Frequency</td><td>${enhanced?'60 Hz':`${hz.toFixed(0)} Hz`}</td><td class="no-top no-bottom indent">100%</td><td class="no-top no-bottom">${motorData.available?motorValue(motorData.pf100):"-"}</td></tr>
    <tr class="table-block"><td>Rated Voltage</td><td>${motorVoltageValue.toFixed(0)} Volt</td><td class="no-top indent">75%</td><td class="no-top">${motorData.available?motorValue(motorData.pf75):"-"}</td></tr>
@@ -1548,7 +1548,7 @@ function renderSelected(){
  const rangeNotice=outside?`<div class="warning">D1 (${q.toFixed(1)} m³/h) is outside this selected model's displayed flow range${enhanced?' on the Enhanced Curve':` at ${hz.toFixed(1)} Hz`}. The selected model is intentionally being kept for reference.</div>`:'';
  const powerNotice=powerOver?`<div class="warning">At D1 and ${hz.toFixed(1)} Hz, calculated shaft power is ${requiredPower.toFixed(2)} kW, above the selected ${best.motor_kw.toFixed(2)} kW motor. Re-check motor/VFD sizing before use.</div>`:'';
  const pLegend=hc.parallelCounts.map(n=>`<span class="legend-item"><i class="legend-line" style="border-color:${keychcParallelColor(n)};${n===1?'':'border-top-style:dashed;border-top-width:2px'}"></i>${n}P</span>`).join('');
- const driveDetail=enhanced?`<div>${best.motor_kw.toFixed(2)} kW &nbsp; | &nbsp; Enhanced</div><div>${KEYSUITE_ENHANCED_MAX_RPM} rpm · ${KEYSUITE_ENHANCED_MAX_HZ} Hz</div>`:`<div>${best.motor_kw.toFixed(2)} kW &nbsp; | &nbsp; Curve ${hz.toFixed(1)} Hz</div><div>${best.rpm.toFixed(0)} rpm · Selected @ ${selectionHz.toFixed(1)} Hz</div>`;
+ const driveDetail=enhanced?`<div>${best.motor_kw.toFixed(2)} kW &nbsp; | &nbsp; Enhanced</div><div>Max ${KEYSUITE_ENHANCED_MAX_HZ} Hz · ${KEYSUITE_ENHANCED_MAX_RPM} rpm</div>`:`<div>${best.motor_kw.toFixed(2)} kW &nbsp; | &nbsp; Curve ${hz.toFixed(1)} Hz</div><div>${selectionHz.toFixed(1)} Hz · ${best.rpm.toFixed(0)} rpm</div>`;
  out.innerHTML=`
  <div class="selection-hero">
    <div><div class="selection-eyebrow">Selected Pump</div><div class="selection-model">${keychcVisibleModelName(best.model,enhanced)}</div><div class="selection-sub">${keysuiteChcPresentationAlias(best.series)} · ${best.stages} stage${best.stages>1?'s':''} · ${best.connection}${enhanced?' · Enhanced':''}</div><span class="selection-status">${enhanced?'SELECTED · ENHANCED':'SELECTED'}</span></div>

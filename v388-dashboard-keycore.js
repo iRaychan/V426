@@ -1,4 +1,4 @@
-/* KeySuite V4.26.03 — Dashboard Quick Pump Selection + split-view sizing */
+/* KeySuite V4.26.07 — Dashboard Quick Pump Selection + split-view sizing */
 (function(){
 'use strict';
 if(window.top!==window.self)return;
